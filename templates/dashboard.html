@@ -190,10 +190,30 @@
                 <input type="number" id="year" placeholder="Year" min="2000" max="2100">
                 <button onclick="loadAnalytics()">Load Analytics</button>
 
-                <div id="graphs">
-                    <div id="income-vs-expenses-graph"></div>
-                    <div id="budget-vs-expense-graph"></div>
-                    <div id="category-spending-breakdown"></div>
+                <div class="row mt-4">
+                    <div class="col-md-4 mb-4">
+                        <div id="income-vs-expenses-graph" class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Income vs Expenses</h5>
+                            </div>
+                        </div>
+                    </div>
+            
+                    <div class="col-md-4 mb-4">
+                        <div id="budget-vs-expense-graph" class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Budget vs Expense</h5>
+                            </div>
+                        </div>
+                    </div>
+            
+                    <div class="col-md-4 mb-4">
+                        <div id="category-spending-breakdown" class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Category Spending Breakdown</h5>
+                            </div>
+                        </div>
+                    </div>
                 </div>
         </div>
         <div class="tab-pane" id="notifications">
