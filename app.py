@@ -96,9 +96,7 @@ def initialize_procedures():
         DECLARE exceed_amount DECIMAL(10, 2);
         DECLARE exceed_message VARCHAR(255);
         DECLARE budget_id INT;
-
         SET total_spent = CalculateMonthlyExpenditure(cat_id, MONTH(trans_date), YEAR(trans_date));
-
         SELECT amount INTO budget_amount
         FROM Budget
         WHERE category_id = cat_id
@@ -106,11 +104,9 @@ def initialize_procedures():
             AND end_date >= trans_date
         ORDER BY end_date DESC
         LIMIT 1;
-
         IF budget_amount IS NOT NULL THEN
             SET exceed_amount = total_spent - budget_amount;
             SET exceed_message = CONCAT('Budget exceeded for category ID ', cat_id, ' by amount: Rs.', exceed_amount);
-
             IF total_spent > budget_amount THEN
                 SELECT budget_id INTO budget_id
                 FROM Budget
@@ -119,7 +115,6 @@ def initialize_procedures():
                     AND end_date >= trans_date
                 ORDER BY end_date DESC
                 LIMIT 1;
-
                 INSERT INTO notification (message, budget_id)
                 VALUES (exceed_message, budget_id);
             END IF;
