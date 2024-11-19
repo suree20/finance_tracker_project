@@ -28,41 +28,45 @@ cursor = db.cursor()
 
 def initialize_tables():
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Category (
+    CREATE TABLE IF NOT EXISTS category (
         category_id INT AUTO_INCREMENT PRIMARY KEY,
         category_name VARCHAR(100) NOT NULL
     );
     ''')
 
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Transaction (
+    CREATE TABLE IF NOT EXISTS budget (
+        budget_id INT AUTO_INCREMENT PRIMARY KEY,
+        category_id INT,
+        amount DECIMAL(10,2) NOT NULL,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        FOREIGN KEY (category_id) REFERENCES category(category_id)
+    );
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE notification (
+        notification_id INT AUTO_INCREMENT PRIMARY KEY,
+        message VARCHAR(255),
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_read TINYINT(1) DEFAULT 0,
+        budget_id INT,
+        FOREIGN KEY (budget_id) REFERENCES budget(budget_id)
+    );
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE transaction (
         transaction_id INT AUTO_INCREMENT PRIMARY KEY,
         category_id INT,
-        amount DECIMAL(10, 2) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
         transaction_type VARCHAR(50),
         description TEXT,
         transaction_date DATE NOT NULL,
-        FOREIGN KEY (category_id) REFERENCES Category(category_id)
-    );
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Budget (
-        budget_id INT AUTO_INCREMENT PRIMARY KEY,
-        category_id INT,
-        amount DECIMAL(10, 2) NOT NULL,
-        start_date DATE NOT NULL,
-        end_date DATE NOT NULL,
-        FOREIGN KEY (category_id) REFERENCES Category(category_id)
-    );
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Notification (
-        notification_id INT AUTO_INCREMENT PRIMARY KEY,
-        message TEXT NOT NULL,
-        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_read BOOLEAN DEFAULT FALSE
+        budget_id INT,
+        FOREIGN KEY (category_id) REFERENCES category(category_id),
+        FOREIGN KEY (budget_id) REFERENCES budget(budget_id)
     );
     ''')
 
@@ -85,24 +89,43 @@ def initialize_function():
 
 def initialize_procedures():
     cursor.execute('''
-    CREATE PROCEDURE IF NOT EXISTS CheckBudgetExceed (IN cat_id INT, IN trans_date DATE)
+    CREATE PROCEDURE IF NOT EXISTS CheckBudgetExceed(IN cat_id INT, IN trans_date DATE)
     BEGIN
         DECLARE total_spent DECIMAL(10, 2);
         DECLARE budget_amount DECIMAL(10, 2);
         DECLARE exceed_amount DECIMAL(10, 2);
         DECLARE exceed_message VARCHAR(255);
+        DECLARE budget_id INT;
+
         SET total_spent = CalculateMonthlyExpenditure(cat_id, MONTH(trans_date), YEAR(trans_date));
+
         SELECT amount INTO budget_amount
         FROM Budget
         WHERE category_id = cat_id
-              AND start_date <= trans_date
-              AND end_date >= trans_date
+            AND start_date <= trans_date
+            AND end_date >= trans_date
         ORDER BY end_date DESC
         LIMIT 1;
-        SET exceed_amount = total_spent - budget_amount;
-        SET exceed_message = CONCAT('Budget exceeded for category ID ', cat_id, ' by amount: Rs.', exceed_amount);
-        IF total_spent > budget_amount THEN
-            INSERT INTO Notification (message)
+
+        IF budget_amount IS NOT NULL THEN
+            SET exceed_amount = total_spent - budget_amount;
+            SET exceed_message = CONCAT('Budget exceeded for category ID ', cat_id, ' by amount: Rs.', exceed_amount);
+
+            IF total_spent > budget_amount THEN
+                SELECT budget_id INTO budget_id
+                FROM Budget
+                WHERE category_id = cat_id
+                    AND start_date <= trans_date
+                    AND end_date >= trans_date
+                ORDER BY end_date DESC
+                LIMIT 1;
+
+                INSERT INTO notification (message, budget_id)
+                VALUES (exceed_message, budget_id);
+            END IF;
+        ELSE
+            SET exceed_message = CONCAT('No budget found for category ID ', cat_id, ' on date: ', trans_date);
+            INSERT INTO notification (message)
             VALUES (exceed_message);
         END IF;
     END;
@@ -150,25 +173,6 @@ def total_budget_vs_expense(month, year):
     ''', (month, month, year, year, month, year))
     
     return cursor.fetchall()
-
-def income_vs_expenses(month, year):
-    results = monthly_analytics(month, year)
-    data = pd.DataFrame(results, columns=['Category', 'Total Expense', 'Total Income'])
-    data['Total Expense'] = pd.to_numeric(data['Total Expense'], errors='coerce').fillna(0)
-    data['Total Income'] = pd.to_numeric(data['Total Income'], errors='coerce').fillna(0)
-
-    fig, ax = plt.subplots()
-    ax.bar(data['Category'], data['Total Expense'], color='red', label='Total Expense')
-    ax.bar(data['Category'], data['Total Income'], color='green', label='Total Income', alpha=0.6)
-    ax.set_title('Income vs Expenses')
-    ax.set_ylabel('Amount')
-    ax.legend()
-    img = io.BytesIO()
-    canvas = FigureCanvas(fig)
-    canvas.print_png(img)
-    img.seek(0)
-    graph = base64.b64encode(img.getvalue()).decode('utf-8')
-    return graph
 
 def budget_vs_expense(month, year):
     results = total_budget_vs_expense(month, year)
@@ -230,15 +234,13 @@ def keymetrics(date):
             transaction t ON b.category_id = t.category_id
         WHERE 
             b.start_date < %s 
-            AND YEAR(%s) <= YEAR(b.end_date) 
-            AND MONTH(%s)+1 <= MONTH(b.end_date)
+            AND b.end_date >= %s
         GROUP BY 
             b.category_id, b.amount;
-    """, (date, date, date))
+    """, (date, date))
     return cursor.fetchall()
 
 def convert_to_float(value):
-    """Helper function to convert to float and handle NaN."""
     try:
         return float(value) if not math.isnan(value) else 0
     except (ValueError, TypeError):
@@ -270,19 +272,36 @@ def add_transaction():
     transaction_type = request.form['transaction_type']
     description = request.form['description']
     transaction_date = request.form['transaction_date']
-
-    cursor.execute("INSERT INTO transaction (category_id, amount, transaction_type, description, transaction_date) VALUES (%s, %s, %s, %s, %s)", 
-                   (category_id, amount, transaction_type, description, transaction_date))
+    
+    cursor.execute("""
+        SELECT budget_id FROM budget WHERE category_id = %s AND start_date <= %s AND end_date >= %s ORDER BY end_date DESC LIMIT 1
+    """, (category_id, transaction_date, transaction_date))
+    
+    budget_id = cursor.fetchone()
+    
+    if budget_id:
+        budget_id = budget_id[0]
+    else:
+        budget_id = None
+    
+    cursor.execute("""
+        INSERT INTO transaction (category_id, amount, transaction_type, description, transaction_date, budget_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (category_id, amount, transaction_type, description, transaction_date, budget_id))
+    
     db.commit()
     return redirect(url_for('dashboard'))
+
 
 @app.route('/')
 def dashboard():
     current_date = date.today()
+    print(current_date)
     result  = keymetrics(current_date)
     col1, col2, col3, col4 = [], [], [], []
     for record in result:
         amount, category_id, total_expenses = record
+        print((amount, category_id, total_expenses))
         amount = convert_to_float(amount)
         total_expenses = convert_to_float(total_expenses)
         remaining_budget = max(amount - total_expenses, 0)
@@ -300,13 +319,11 @@ def analytics():
     month = request.json['month']
     year = request.json['year']
     print(month, year)
-    
-    income_vs_expenses_graph = income_vs_expenses(month, year)
+
     budget_vs_expense_graph = budget_vs_expense(month, year)
     category_spending_breakdown_graph = category_spending_breakdown(month, year)
 
     return jsonify({
-        'income_vs_expenses_graph': income_vs_expenses_graph,
         'budget_vs_expense_graph': budget_vs_expense_graph,
         'categorical_spending_breakdown': category_spending_breakdown_graph
     })
