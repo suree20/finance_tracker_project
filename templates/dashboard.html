@@ -191,13 +191,6 @@
                 <button onclick="loadAnalytics()">Load Analytics</button>
 
                 <div class="row mt-4">
-                    <div class="col-md-4 mb-4">
-                        <div id="income-vs-expenses-graph" class="card">
-                            <div class="card-body">
-                                <h5 class="card-title">Income vs Expenses</h5>
-                            </div>
-                        </div>
-                    </div>
             
                     <div class="col-md-4 mb-4">
                         <div id="budget-vs-expense-graph" class="card">
@@ -247,13 +240,16 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
+    document.querySelector('a[href="#notifications"]').addEventListener('click', function() {
+        fetchNotifications();
+    });
     function fetchNotifications() {
         fetch('/get_notifications')
             .then(response => response.json())
             .then(data => {
                 console.log('Received data:', data);
                 const notificationsList = document.getElementById('notifications-list');
-                notificationsList.innerHTML = '';
+                notificationsList.innerHTML = '';  // Clear existing notifications
                 data.notifications.forEach(notification => {
                     const notificationDiv = document.createElement('div');
                     notificationDiv.classList.add('notification-item');
@@ -268,6 +264,7 @@
             })
             .catch(error => console.error('Error fetching notifications:', error));
     }
+    
     function markAsRead(notificationId) {
         fetch(`/mark_as_read/${notificationId}`, { method: 'POST' })
             .then(response => response.json())
@@ -276,10 +273,6 @@
                 fetchNotifications();
             })
             .catch(error => console.error('Error marking notification as read:', error));
-    }
-    window.onload = function() {
-        fetchNotifications();
-        console.log('Notifications loaded');
     }
     function showToast(type) {
         let toastElement;
@@ -353,9 +346,6 @@
             success: function(data) {
                 console.log("Analytics Data:", data);
 
-                document.getElementById('income-vs-expenses-graph').innerHTML = `
-                    <img src="data:image/png;base64,${data.income_vs_expenses_graph}" alt="Income vs Expenses" />
-                `;
                 document.getElementById('budget-vs-expense-graph').innerHTML = `
                     <img src="data:image/png;base64,${data.budget_vs_expense_graph}" alt="Budget vs Expense" />
                 `;
